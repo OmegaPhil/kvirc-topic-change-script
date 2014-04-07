@@ -1,0 +1,557 @@
+# Topic Change Script
+# ===================
+# 
+# Version 1.7 April 2014
+
+/*
+Copyright (C) 2010-2014 OmegaPhil (OmegaPhil+KVIrc@gmail.com)
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+
+# EVENTS
+# Interception of channel joins
+event(OnChannelSync,TopicChangeScript)
+{
+    # Exiting if script is off
+    if (%TopicChangeScript_Settings{"Status"} == "off") return
+
+    # Debug code
+    #echo "OnChannelSync detected, channel topic: $chan.topic"
+    
+    # Saving channel topic
+    %TopicChangeScript_PastTopics{$target} = $chan.topic
+}
+
+# Initialising components
+event(OnKVIrcStartup,TopicChangeScript)
+{
+    # Running startup
+    TopicChangeScript::Startup
+}
+
+# Interception of channel parts
+event(OnMePart,TopicChangeScript)
+{
+    # $0 = part message
+
+    # Exiting if script is off
+    if (%TopicChangeScript_Settings{"Status"} == "off") return
+    
+    # Clearing topic of channel
+    %TopicChangeScript_PastTopics{$target} = ""
+}
+
+# Interception of topic changes
+event(OnTopic,TopicChangeScript)
+{
+    # $0 = nickname
+    # $1 = username
+    # $2 = hostname
+    # $3 = new topic string
+    
+    # Variable allocation
+    %nick = $0
+    %username = $1
+    %hostname = $2
+    %newTopic = $str.stripcolors($3)
+    
+    # Exiting if script is off
+    if (%TopicChangeScript_Settings{"Status"} == "off") return
+    
+    # When nick blacklists are required, remember to develop fully with the GUI integration
+    # Nick (of topic changer) blacklist - exiting on a hit
+    # if (%nick == "BU|Bot") return
+    
+    # Do I need stripping now?
+    # Setting strStrippedTopic (remember that I do want control codes logged later on for correct topic rendering in echos)
+    #%strStrippedTopic = $strip($1-)
+    
+    # Obtaining oldTopic if present
+    if (%TopicChangeScript_PastTopics{$target} != "") %oldTopic = $str.stripcolors(%TopicChangeScript_PastTopics{$target})
+    
+    # Informing user topic change has been detected
+    #echo Topic change detected in $chan by $nick to: $1-
+    #if (%oldTopic != "") { echo Previous topic: %oldTopic }
+
+    # Ensuring message contains no KVIrc script
+    %message = $escape(%message)
+    
+    # Building message
+    %message = "[$date(d/m/y H:M:S)] Channel topic change detected on $target by %nick ($mask(%nick)) to:$lf$lf%newTopic"
+    if (%oldTopic != "") %message = "%message$lf$lf""Previous topic:$lf$lf%oldTopic"
+    
+    # Topic change emailing code
+    # Checking if a topic change in this channel is configured to result in an email
+    if (%TopicChangeScript_Notifications{$target} != "")
+    {
+        # It is, emailing me
+        # Substituting subject and message into arguments and running mail command
+        %command = %TopicChangeScript_Settings{"MailCommand"}
+        %command =~ s/\%s/"[Topic Change Script] $target topic change detected"/g
+        %command =~ s/\%m/%message/g
+        exec(%command) {}
+    }
+    
+    # Updating channel topic in hashtable (not saving as stripped so that in the future it can be echoed with control codes intact)
+    %TopicChangeScript_PastTopics{$target} = %newTopic
+}
+
+
+# ALIASES
+# TopicChangeScript alias
+# Usage: TopicChangeScript <command>. <nothing>: Script status. h/help: This usage information. on: Turn script on. off: Turn script off. startup: Load script up. listnotifychans: Echoes all channels where a topic change triggers an email. addnotifychan <channel>: Adds a channel to be emailed about when the topic changes. deletenotifychan <channel>: Deletes a channel from the topic monitoring list.
+alias(TopicChangeScript)
+{
+    %usageInstructions = "Usage: TopicChangeScript <command>. <nothing>: Script status. h/help: This usage information. on: Turn script on. off: Turn script off. startup: Load script up. listnotifychans: Echoes all channels where a topic change triggers an email. addnotifychan <channel>: Adds a channel to be emailed about when the topic changes. deletenotifychan <channel>: Deletes a channel from the topic monitoring list."
+    %i = 1
+        
+    # Intercepting status request (nothing passed to the alias)
+    if ($0 == "")
+    {
+        echo "Topic Change Script is currently %TopicChangeScript_Settings{"Status"}."
+        return
+    }
+    
+    # Intercepting help requests
+    if ($0 == "h" || $0 == "help")
+    {
+        echo %usageInstructions
+        return
+    }
+    
+    # Intercepting on request
+    if ($0 == "on")
+    {
+        # Making sure script is off
+        if (%TopicChangeScript_Settings{"Status"} != "off")
+        {
+            # Script is already on - informing user and exiting
+            warning "Topic Change Script is already on."
+            return
+        }
+        
+        # Turning script on
+        %TopicChangeScript_Settings{"Status"} = "on"
+
+        # Saving configuration
+        TopicChangeScript::Save
+
+        echo "Topic Change Script has been turned on."
+        return
+    }
+    
+    # Intercepting off request
+    if ($0 == "off")
+    {
+        # Making sure script is on
+        if (%TopicChangeScript_Settings{"Status"} != "on")
+        {
+            # Script is already off - informing user and exiting
+            warning "Topic Change Script is already off."
+            return
+        }
+        
+        # Turning script off
+        %TopicChangeScript_Settings{"Status"} = "off"
+
+        # Saving configuration
+        TopicChangeScript::Save
+
+        echo "Topic Change Script has been turned off."
+        return
+    }
+    
+    # Intercepting startup request
+    if ($0 == "startup")
+    {
+        # Running startup
+        TopicChangeScript::Startup
+        return
+    }
+    
+    # Intercepting listnotifychans request
+    if ($0 == "listnotifychans")
+    {
+        echo "Listing all channels that currently cause an email to be sent when their topic changes:"
+        
+        # Looping through all channels registered to email on when the topic changes and echoing
+        foreach(%channel, $sort($keys(%TopicChangeScript_Notifications))) echo %channel
+        
+        echo "Channel listing complete."
+        return
+    }
+    
+    # Intercepting addnotifychan request
+    if ($0 == "addnotifychan")
+    {
+        # Making sure a channel was specified
+        if ($1 == "")
+        {
+            # A channel wasn't specified - warning user and exiting
+            warning "Please specify a channel to add to the list to get emailed on when the topic changes."
+            return
+        }
+        
+        # Setting channel
+        %channel = $1
+        
+        # Making sure the channel given has a leading hash
+        if ($str.left(%channel,1) != "#")
+        {
+            # It hasn't - warning user and exiting
+            warning "Please specify a channel with a leading hash to add to the list to get emailed on when the topic changes."
+            return
+        }
+        
+        # Making sure the channel isn't already monitored
+        if (%TopicChangeScript_Notifications{%channel} != "")
+        {
+            # It is - warning user and exiting
+            warning "The channel %channel is already registered to generate emails when the topic changes."
+            return
+        }
+        
+        # Adding channel to the hashtable and saving
+        %TopicChangeScript_Notifications{%channel} = %channel
+        TopicChangeScript::Save
+        
+        # Informative message and exiting
+        echo "%channel has been added to the list to generate emails when the topic changes."
+        return
+    }
+    
+    # Intercepting deletenotifychan request
+    if ($0 == "deletenotifychan")
+    {
+        # Making sure a channel was specified
+        if ($1 == "")
+        {
+            # A channel wasn't specified - warning user and exiting
+            warning "Please specify a channel to delete from the list to get emailed on when the topic changes."
+            return
+        }
+        
+        # Setting channel
+        %channel = $1
+        
+        # Making sure the channel given has a leading hash
+        if ($str.left(%channel,1) != "#")
+        {
+            # It hasn't - warning user and exiting
+            warning "Please specify a channel with a leading hash to delete from the list to get emailed on when the topic changes."
+            return
+        }
+        
+        # Making sure the channel is being monitored
+        if (%TopicChangeScript_Notifications{%channel} == "")
+        {
+            # It isn't - warning user and exiting
+            warning "The channel %channel is currently not registered to generate emails when the topic changes."
+            return
+        }
+        
+        # Removing channel from the hashtable and saving
+        %TopicChangeScript_Notifications{%channel} = ""
+        TopicChangeScript::Save
+        
+        # Informative message and exiting
+        echo "%channel has been removed from the list to generate emails when the topic changes."
+        return
+    }
+    
+    # Informing user of an unrecognised command
+    warning "Command unrecognised - use h/help for usage instructions. Parmeters: '$0-'."
+}
+
+# TopicChangeScript::Save alias
+alias(TopicChangeScript::Save)
+{
+    # Opening config file
+    %configFileID = $config.open($file.localdir("/scripts/topic_change_script_settings"))
+    
+    # Saving settings
+    config.clearsection %configFileID "KVIrc"
+    foreach(%setting, $keys(%TopicChangeScript_Settings)) config.write %configFileID %setting %TopicChangeScript_Settings{%setting}
+    
+    # Saving notifications
+    config.clearsection %configFileID "Notifications"
+    config.setsection %configFileID "Notifications"
+    foreach(%channel, $keys(%TopicChangeScript_Notifications)) config.write %configFileID %channel %channel
+    
+    # Committing settings
+    config.close %configFileID
+}
+
+# TopicChangeScript::Startup alias
+alias(TopicChangeScript::Startup)
+{
+    # Making sure settings directory exists
+    if ($file.exists($file.localdir("/scripts/")) == 0) file.mkdir $file.localdir("/scripts/")
+    
+    # Opening config file
+    %configFileID = $config.open($file.localdir("/scripts/topic_change_script_settings"))
+    
+    # Loading settings
+    foreach(%setting, $config.keylist(%configFileID)) %TopicChangeScript_Settings{%setting} = $config.read(%configFileID, %setting)
+
+    # Dropping GUI settings - objects can't be serialised
+    %TopicChangeScript_Settings{"GUI"} = ""
+
+    # Loading notified channels
+    config.setsection %configFileID "Notifications"
+    foreach(%channel, $config.keylist(%configFileID)) %TopicChangeScript_Notifications{%channel} = %channel
+    
+    # Closing configuration file
+    config.close %configFileID
+
+    # Creating dialogs
+    # Mail command dialog
+    %dialog = $new(dialog,,"TopicChangeScript_MailCommand")
+    %dialog->$setWindowTitle("Configure Email Command - Topic Change Script")
+
+    %vbox = $new(vbox,%dialog,"VBox")
+    %layout = $new(layout,%dialog)
+    %layout->$addRowSpacing(0,30)
+    %layout->$addWidget(%vbox,0,0)
+    
+    %label_command = $new(label,%vbox)
+    %label_command->$setText("Please enter the command to use when this script should send out an email:\n")
+    
+    %lineedit_command = $new(lineedit,%vbox,"Command")
+    %dialog->%lineedit_command = %lineedit_command
+
+    # Help labels split up based on alignment. Note that 'WordBreak' is in reality justify
+    %label_help1 = $new(label,%vbox,"Help 1")
+    %label_help1->$setText("\nThe command should be a full invocation including the substitution variables below representing the email subject and message. Speechmark-delimit the program path (if it contains spaces) and all relevant arguments including the substitution characters - the command is ran through a shell.")
+    %label_help1->$setAlignment("WordBreak")
+
+    %label_help2 = $new(label,%vbox,"Help 2")
+    %label_help2->$setText("\nSubject: \%s\nMessage: \%m\n\nExample sendemail invocation using SMTP authentication with TLS disabled due to an invalid certificate in my case - select and copy the text if needed:\n\n\/usr/bin/sendemail -f \"me@mymailhost.org\" -t \"to@destinationhost.org\" -s \"mymailserver.co.uk\" -xu \"SMTPAuthUsername\" -xp \"SMTPAuthPassword\" -o tls=no -u '\%s' -m '\%m'\n")
+
+    %hbox = $new(hbox,%dialog)
+    %layout->$addWidget(%hbox,1,0)
+
+    %button_OK = $new(button, %hbox)
+    %button_OK->$setText("OK")
+
+    %button_Cancel = $new(button, %hbox)
+    %button_Cancel->$setText("Cancel")
+
+    # Event overrides
+    privateimpl(%dialog,"showevent")
+    {
+        # Populating lineedit_command 
+        $$->%lineedit_command->$setText(%TopicChangeScript_Settings{"MailCommand"})
+        $$->%lineedit_command->$setFocus
+    }
+
+    privateimpl(%dialog,"OK")
+    {
+        # Making sure subject and message substitutions are present
+        if ($(!($str.contains($$->%lineedit_command->$text, "\%s") && $str.contains($$->%lineedit_command->$text, "\%m"))))
+        {
+            dialog.message("Configure Email Command - Topic Change Script", "Please ensure the email command contains both the '\%s' subject and '\%m' message substitutions.", "Warning", "OK") {}
+            return
+        }
+
+        # Saving configuration
+        %TopicChangeScript_Settings{"MailCommand"} = $$->%lineedit_command->$text
+        TopicChangeScript::Save
+
+        $$->$hide
+    }
+
+    privateimpl(%dialog,"Cancel")
+    {
+        $$->$hide
+    }
+    
+    objects.connect %button_OK clicked %dialog OK
+    objects.connect %button_Cancel clicked %dialog Cancel
+
+    # Saving dialog object ID
+    %TopicChangeScript_Settings{"GUI"}{"TopicChangeScript_MailCommand"} = %dialog
+
+    # Remove channel dialog
+    %dialog = $new(dialog,,"TopicChangeScript_RemoveChannel")
+    %dialog->$setWindowTitle("Remove Channel From Monitoring For Topic Changes - Topic Change Script")
+
+    %vbox = $new(vbox,%dialog,"VBox")
+    %layout = $new(layout,%dialog)
+    %layout->$addRowSpacing(0,30)
+    %layout->$addWidget(%vbox,0,0)
+    
+    %label_channel = $new(label,%vbox)
+    %label_channel->$setText("Channel to remove:")
+    
+    %listbox_channel = $new(listbox,%vbox,"ChannelToRemove")
+    %dialog->%listbox_channel = %listbox_channel
+
+    %hbox = $new(hbox,%dialog)
+    %layout->$addWidget(%hbox,1,0)
+
+    %button_OK = $new(button, %hbox)
+    %button_OK->$setText("OK")
+
+    %button_Cancel = $new(button, %hbox)
+    %button_Cancel->$setText("Cancel")
+
+    # Event handler overrides
+    privateimpl(%dialog,"showevent")
+    {
+        # Populating listbox_channel 
+        $$->%listbox_channel->$clear
+        %sortedChannels = $sort($keys(%TopicChangeScript_Notifications))
+        foreach(%channel, %sortedChannels) $$->%listbox_channel->$insertitem(%channel)
+        
+        # Focussing listbox_channel
+        $$->%listbox_channel->$setFocus
+    }
+
+    privateimpl(%dialog,"OK")
+    {
+        # Obtaining ChannelToRemove
+        %channelToRemove = $$->%listbox_channel->$currentText
+        
+        # Checking to see if channelToRemove has been given
+        if (%channelToRemove == "")
+        {
+            # channelToRemove hasn't been given - erroring and exiting
+            dialog.message("Remove Channel From Monitoring For Topic Changes - Topic Change Script", "Please specify a channel to remove.","Warning") { }
+            $$->$hide
+            return
+        }
+        
+        # Removing channel and saving
+        %TopicChangeScript_Notifications{%channelToRemove} = ""
+        TopicChangeScript::Save
+        
+        dialog.message("Remove Channel From Monitoring For Topic Changes - Topic Change Script", "Channel %channelToRemove has been removed from monitoring.","Information") { }
+        $$->$hide
+    }
+
+    privateimpl(%dialog,"Cancel")
+    {
+        # Hiding dialog
+        $$->$hide
+    }
+    
+    objects.connect %button_OK clicked %dialog OK
+    objects.connect %button_Cancel clicked %dialog Cancel
+
+    # Saving dialog object ID
+    %TopicChangeScript_Settings{"GUI"}{"TopicChangeScript_RemoveChannel"} = %dialog
+    
+    # Integrating into main toolbar
+    # Creating script popup
+    if ($popup.exists("TopicChangeScript_Main")) popup.destroy "TopicChangeScript_Main"
+    popup.create "TopicChangeScript_Main"
+    popup.addItem("TopicChangeScript_Main", "Turn script on",,, \%TopicChangeScript_Settings{\"Status\"} == \"off\") TopicChangeScript "on"
+    popup.addItem("TopicChangeScript_Main", "Turn script off",,, \%TopicChangeScript_Settings{\"Status\"} == \"on\") TopicChangeScript "off"
+    popup.addSeparator "TopicChangeScript_Main"
+    popup.addItem("TopicChangeScript_Main", "List all monitored channels") TopicChangeScript "listnotifychans"
+    popup.addItem("TopicChangeScript_Main", "Monitor channel for topic changes")
+    {
+        # Obtaining channel
+        dialog.textinput -i=$icon("Information") ("Monitor Channel For Topic Changes - Topic Change Script", "Please enter channel to monitor (keep the leading hash):", "Add", "escape=Cancel")
+        {
+            # Debug code
+            #echo "Dialog return value: "$0
+
+            # Exiting if user cancelled
+            if ($0 == 1) return
+
+            # Setting channel
+            %channel = $1
+
+            # Making sure channel was specified
+            if (%channel == "")
+            {
+                # It wasn't - warning user and exiting
+                warning "Please specify a channel to monitor."
+                return
+            }
+
+            # Adding channel to email notification list
+            TopicChangeScript "addnotifychan" %channel
+        }
+    }
+    # TODO: This should only be usable when there are channels to remove
+    popup.addItem("TopicChangeScript_Main", "Remove channel from monitoring for topic changes",,, \%TopicChangeScript_Notifications{}# != 0) %TopicChangeScript_Settings{"GUI"}{"TopicChangeScript_RemoveChannel"}->$show
+    popup.addSeparator "TopicChangeScript_Main"
+    popup.addItem("TopicChangeScript_Main", "Configure email command...") %TopicChangeScript_Settings{"GUI"}{"TopicChangeScript_MailCommand"}->$show
+
+    # Making sure the main 'Scripts' menu command exists
+    if ($(!($popup.exists("Scripts")))) popup.create "Scripts"
+
+    # Tying main script popup to KVIrc menu (appears after 'Scripting') - this must be done on every program startup
+    setmenu -i=2 "Scripts" "Scripts"
+
+    # Adding Topic Change Script to Scripts popup
+    popup.delitem -q "Scripts" "TopicChangeScript_Main"
+    popup.addExtPopup "Scripts" "TopicChangeScript_Main" "Topic Change Script" "" "TopicChangeScript_Main"
+
+    # Integrating into channel popup
+    # Creating script popup
+    if ($popup.exists("TopicChangeScript_Channel")) popup.destroy "TopicChangeScript_Channel"
+    popup.create "TopicChangeScript_Channel"
+    popup.addItem("TopicChangeScript_Channel", "Receive email when topic changes",,, \%TopicChangeScript_Notifications{\$target} == \"\") TopicChangeScript "addnotifychan" $target
+    popup.addItem("TopicChangeScript_Channel", "Stop receiving email when topic changes",,, \%TopicChangeScript_Notifications{\$target} != \"\") TopicChangeScript "deletenotifychan" $target
+    
+    # Adding Topic Change Script menu to channel popup (ensuring that it doesn't exist already)
+    popup.delitem -q "channeltextview" "TopicChangeScript_Channel"
+    popup.addSeparator "channeltextview" "TopicChangeScript_Channel_Separator" "\%TopicChangeScript_Settings{\"Status\"} == \"on\""
+    popup.addExtPopup "channeltextview" "TopicChangeScript_Channel" "Topic Change Script" "" "TopicChangeScript_Channel" "\%TopicChangeScript_Settings{\"Status\"} == \"on\""
+}
+
+# Uninstaller alias
+alias(TopicChangeScript::uninstall::uninstall)
+{
+    # All events and aliases should be uninstalled here
+    alias(TopicChangeScript) {}
+    alias(TopicChangeScript::Save) {}
+    alias(TopicChangeScript::Startup) {}
+    alias(TopicChangeScript::uninstall::uninstall) {}
+    event(OnChannelSync,TopicChangeScript) {}
+    event(OnKVIrcStartup,TopicChangeScript) {}
+    event(OnMePart,TopicChangeScript) {}
+    event(OnTopic,TopicChangeScript) {}
+    
+    # Removing popups
+    delpopupitem -q "Scripts" TopicChangeScript_Main
+    delpopupitem -q "channeltextview" TopicChangeScript_Channel
+    delpopupitem -q "channeltextview" TopicChangeScript_Channel_Separator
+    defpopup -q ("TopicChangeScript_Main") {}
+    defpopup -q ("TopicChangeScript_Channel") {}
+
+    # Destroying objects
+    foreach(%object,$keys(%TopicChangeScript_Settings{"GUI"}))
+    {
+        destroy %TopicChangeScript_Settings{"GUI"}{%object}
+    }
+
+    # Clearing global variables
+    %TopicChangeScript_Settings = ""
+}
+
+
+# COMMENTS
+
+# TopicChangeScript_Settings format:
+
+# Item: {"GUI"}. Data: GUI objects.
+# Item: {"MailCommand"}. Data: Command to use to send email.
+# Item: {"Status"}. Data: 'on'/'off' according to script state.
