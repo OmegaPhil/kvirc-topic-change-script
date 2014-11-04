@@ -333,10 +333,10 @@ alias(TopicChangeScript::Startup)
     %lineedit_command = $new(lineedit,%vbox,"Command")
     %dialog->%lineedit_command = %lineedit_command
 
-    # Help labels split up based on alignment. Note that 'WordBreak' is in reality justify
+    # Help labels split up based on alignment
     %label_help1 = $new(label,%vbox,"Help 1")
     %label_help1->$setText("\nThe command should be a full invocation including the substitution variables below representing the email subject and message. Speechmark-delimit the program path (if it contains spaces) and all relevant arguments including the substitution characters - the command is ran through a shell.")
-    %label_help1->$setAlignment("WordBreak")
+    %label_help1->$setAlignment("Justify")
 
     %label_help2 = $new(label,%vbox,"Help 2")
     %label_help2->$setText("\nSubject: \%s\nMessage: \%m\n\nExample sendemail invocation using SMTP authentication with TLS disabled due to an invalid certificate in my case - select and copy the text if needed:\n\n\/usr/bin/sendemail -f \"me@mymailhost.org\" -t \"to@destinationhost.org\" -s \"mymailserver.co.uk\" -xu \"SMTPAuthUsername\" -xp \"SMTPAuthPassword\" -o tls=no -u '\%s' -m '\%m'\n")
