@@ -8,12 +8,16 @@ Installation
 
 v1.8+ requires KVIrc 4.3.1 r6393 or higher due to a KVIrc Script change - for all I know I'm the only user of this script, if you have an earlier version of KVIrc and want to use this script, please open an issue on Github (see 'Bugs And Feature Requests' later) and I will try to work something out.
 
-To load the script into KVIrc (which then persists until you uninstall) and run its startup alias, in a KVIrc console window:
+To load the script into KVIrc (which then persists until you uninstall) and run its startup alias, first disable 'User friendly command-line mode' (it prevents the parse command from working):
+
+In a KVIrc console window, look at the bottom right - on the far right of the text entry widget, you'll see an arrow button. Press to expand, then press the 3rd button from the left - normal KVS command mode is now active, and the parse command below works:
 
     /parse <path to script file, speechmark-delimited if the path contains spaces>
     /TopicChangeScript::Startup
 
 Once the script is installed, TopicChangeScript::Startup is automatically called when KVIrc is started.
+
+You can turn back on 'User friendly command-line mode' if you want, its a per-window setting.
 
 
 Dependencies
